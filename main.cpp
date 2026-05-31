@@ -2,6 +2,7 @@
  * The MIT License (MIT)
  *
  * Copyright (C) 2017, djcj <djcj@gmx.de>
+ * Copyright (C) 2026, bhp <bharatvaj@yahoo.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,7 +25,7 @@
 
 #define USAGE "\n" \
   "This program is a wrapper for msvc's cl.exe and intended to be used\n" \
-  "with Windows 10's \"Bash on Ubuntu on Windows\" shell.\n" \
+  "with in Windows\n" \
   "It is invoked with gcc options (only a limited number) and turns\n" \
   "them into msvc options to call cl.exe.\n" \
   "The msvc options may not exactly do the same as their gcc counterparts.\n" \
@@ -41,9 +42,6 @@
   "\n" \
   "Other options:\n" \
   "  --help                display this information\n" \
-  "  --help-cl             display cl.exe's help information\n" \
-  "  --help-link           display link.exe's help information\n" \
-  "  --version             display version information of cl.exe and link.exe\n" \
   "  --verbose             print commands\n" \
   "  --print-only          print commands and don't to anything\n" \
   "  --path=path           semicolon (;) separated list of win32 paths to run cl.exe\n" \
@@ -60,24 +58,19 @@
 
 #include <ctype.h>
 #include <errno.h>
-#include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <unistd.h>
-
-#include "config.h"
 
 #define STR(x) std::string(x)
 
 bool begins(const char *p, const char *str);
 std::string win_path(char *ch);
-void split_env(const char *env_var, std::string msvc_arg, std::string &str);
 void print_help(char *self);
 extern "C" {
-int system_return(const char *command);
+int system_return(const char* cmd, const char *command);
 }
 
 
@@ -85,12 +78,7 @@ int system_return(const char *command);
 bool begins(const char *p, const char *str)
 {
   size_t n = strlen(str);
-
-  if (strncmp(p, str, n) == 0 && strlen(p) > n)
-  {
-    return true;
-  }
-  return false;
+  return (strncmp(p, str, n) == 0 && strlen(p) > n);
 }
 
 /* C: is mounted as "/mnt/c", D: as "/mnt/d", and so on;
@@ -142,20 +130,6 @@ std::string win_path(char *ch)
   return str;
 }
 
-void split_env(const char *env_var, std::string msvc_arg, std::string &str)
-{
-  char *env = getenv(env_var);
-  if (env != NULL)
-  {
-    char *token = strtok(env, ";");
-    while (token != NULL)
-    {
-      str += " /" + msvc_arg + "\"" + win_path(token) + "\"";
-      token = strtok(NULL, ";");
-    }
-  }
-}
-
 void print_help(char *self)
 {
   std::cout << "Usage: " << self << " [options] file...\n" << USAGE << std::endl;
@@ -164,32 +138,17 @@ void print_help(char *self)
 
 int main(int argc, char **argv)
 {
-  std::string str, cmd, lnk, driver_paths, run_exe;
-  std::string driver_default = DEFAULT_CL_PATH_X64;
-  std::string includes_default = DEFAULT_INCLUDES;
-  std::string lib_paths_default = DEFAULT_LIBPATHS_X64;
-  int bits = 64;
+  std::string str, cmd, lnk;
+  bool is_unsupported = false;
 
   bool verbose = false;
   bool print_only = false;
   bool have_outname = false;
   bool print_search_dirs = false;
-  bool print_help_cl = false;
-  bool print_help_link = false;
-  bool print_version = false;
   bool do_link = true;
-  bool use_default_driver = true;
-  bool use_default_inc_paths = true;
-  bool default_lib_paths = true;
   bool dll = false;
   bool link_static = false;
-
-  char *driver_env = getenv("CL_PATH");
-  if (driver_env != NULL)
-  {
-    driver_paths = driver_env;
-    use_default_driver = false;
-  }
+  bool unix_style_static_libs = true;
 
 
   /* parse arguments */
@@ -204,17 +163,11 @@ int main(int argc, char **argv)
     {
       if (arg[1] == '-')
       {
-        if      (begins(arg, "--path=")) { driver_paths = arg+7;
-                                           use_default_driver = false;    }
-        else if (str == "--verbose")     { verbose = true;                }
+        if (str == "--verbose")          { verbose = true;                }
         else if (str == "--print-only")  { verbose = print_only = true;   }
         else if (str == "--help")        { print_help(argv[0]); return 0; }
-        else if (begins(arg, "--help-"))
-        {
-          if      (str == "--help-cl")   { print_help_cl = true;   }
-          else if (str == "--help-link") { print_help_link = true; }
-        }
-        else if (str == "--version")     { print_version = true;   }
+        else if (str == "--disable-unix-style-static-libs")
+                                         { unix_style_static_libs = true; }
       }
       else
       {
@@ -318,7 +271,14 @@ int main(int argc, char **argv)
               str != "-lmingwex"   && /* to disable the blacklisting */
               str != "-lmingwthrd" &&
               str != "-lmoldname"  &&
-              str != "-lpthread")     { lnk += " \"" + STR(arg+2) + ".lib\""; }
+              str != "-lpthread")     {
+              if (unix_style_static_libs) {
+                lnk += " \"" + STR(arg+2) + ".a\"";
+              } else {
+                lnk += " \"" + STR(arg+2) + ".lib\"";
+              }
+          }
+
         }
 
         /*  -O0 -O1 -O2 -O3 -Os  */
@@ -448,8 +408,8 @@ int main(int argc, char **argv)
         /*  -mdll  -msse -msse2  -mavx -mavx2  */
         else if (arg[1] == 'm' && len > 2)
         {
-          if      (str == "-m32")   { bits = 32;                 }
-          else if (str == "-m64")   { bits = 64;                 }
+          if      (str == "-m32")   { is_unsupported = true;     }
+          else if (str == "-m64")   { is_unsupported = true;     }
           else if (str == "-mdll")  { cmd += " /LD"; dll = true; }
           else if (str == "-msse")  { cmd += " /arch:SSE";       }
           else if (str == "-msse2") { cmd += " /arch:SSE2";      }
@@ -502,10 +462,10 @@ int main(int argc, char **argv)
         else if (arg[1] == 'n' && len > 8)
         {
           if      (str == "-nostdinc" ||
-                   str == "-nostdinc++")    { use_default_inc_paths = false; }
-          else if (str == "-nostdlib")      { default_lib_paths = false;     }
-          else if (str == "-nodefaultlibs") { lnk += " /nodefaultlib";
-                                              default_lib_paths = false;     }
+                   str == "-nostdinc++")    { cmd += " /X"; }
+
+          else if (str == "-nostdlib")      { is_unsupported = true; }
+          else if (str == "-nodefaultlibs") { lnk += " /nodefaultlib"; }
         }
 
         /*  -shared  -static  -static-libgcc  -static-libstdc++  -std=c<..>|gnu<..>  */
@@ -550,61 +510,14 @@ int main(int argc, char **argv)
     }
   }
 
-  if (bits == 32)
+  if (is_unsupported == true)
   {
-    if (!use_default_driver)
-    {
-      std::cerr << "warning: ignoring `-m32' when using a custom cl.exe" << std::endl;
-    }
-    driver_default = DEFAULT_CL_PATH_X86;
-    lib_paths_default = DEFAULT_LIBPATHS_X86;
+    std::cerr << "warning: ignoring `-m32' when using a custom cl.exe" << std::endl;
   }
-  if (use_default_driver)
-  {
-    driver_paths = driver_default;
-  }
-
-  run_exe = "cmd.exe /C 'set PATH=" + driver_paths + ";%PATH% & ";
-
-
-  /* print information and exit */
-
-  if (print_help_cl)
-  {
-    /* piping to cat helps to display the
-     * output correctly and in one go */
-    cmd = run_exe + "cl.exe /help' 2>&1 | cat";
-    return system(cmd.c_str());
-  }
-  else if (print_help_link)
-  {
-    cmd = run_exe + "link.exe' 2>&1 | cat";
-    return system(cmd.c_str());
-  }
-  else if (print_version)
-  {
-    cmd = run_exe + "cl.exe' 2>&1 | head -n3 ; " + run_exe + "link.exe' 2>&1 | head -n3";
-    return system(cmd.c_str());
-  }
-
-  if (print_search_dirs)
-  {
-    std::cout << "cl.exe: " << driver_default << std::endl;
-    std::cout << "includes: " << includes_default << std::endl;
-    std::cout << "libraries: " << lib_paths_default << std::endl;
-    return 0;
-  }
-
-
-  /* turn lists obtained from environment variables INCLUDE and
-   * and LIB into command line arguments /I\"dir\" and /libpath\"dir\" */
-  split_env("INCLUDE", "I", cmd);
-  split_env("LIB", "libpath", cmd);
 
 
   /* create the final command to execute */
 
-  if (use_default_inc_paths) { cmd += " " + includes_default; }
   if (!link_static)          { cmd += " /MD";                 }
   if (do_link)
   {
@@ -613,7 +526,6 @@ int main(int argc, char **argv)
       if (dll) { lnk += " /out:\"a.dll\""; }
       else     { lnk += " /out:\"a.exe\""; }
     }
-    if (default_lib_paths) { lnk += " " + lib_paths_default; }
     cmd += " /link" + lnk;
   }
 
@@ -625,8 +537,6 @@ int main(int argc, char **argv)
     cmd.replace(i, 1, "\"");
   }
 
-  cmd = run_exe + "cl.exe" + cmd + "'";
-
   if (verbose)
   {
     std::cout << cmd << std::endl;
@@ -636,6 +546,6 @@ int main(int argc, char **argv)
     return 0;
   }
 
-  return system_return(cmd.c_str());
+  return system_return("cl.exe", cmd.c_str());
 }
 

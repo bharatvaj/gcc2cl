@@ -1,7 +1,7 @@
 /**
  * The MIT License (MIT)
  *
- * Copyright (C) 2017, djcj <djcj@gmx.de>
+ * Copyright (C) 2026, bhp <bharatvaj@yahoo.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,64 +22,42 @@
  * SOFTWARE.
  */
 
+#include <windows.h>
 #include <stdio.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
-/**
- * like system() but it returns the exit code of the
- * given command rather than that of the forked shell
- */
+int system_return(const char* cmd, const char* source_file) {
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    char cmd_line[512];
 
-int system_return(const char *command)
-{
-  int status;
-  int return_status = 127;
-  pid_t pid = fork();
+    snprintf(cmd_line, sizeof(cmd_line), "%s %s", cmd, source_file);
 
-  if (pid == 0)
-  {
-    execl("/bin/sh", "sh", "-c", command, (char *)NULL);
-    _exit(127);  /* if execl() was successful, this won't be reached */
-  }
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    ZeroMemory(&pi, sizeof(pi));
 
-  if (pid > 0)
-  {
-    if (waitpid(pid, &status, 0) > 0)
-    {
-      if (WIFEXITED(status) == 1)
-      {
-        return_status = WEXITSTATUS(status);
-        if (return_status == 127) {
-          fprintf(stderr, "execl() failed\n");
-        }
-      } else {
-        fprintf(stderr, "the program did not terminate normally\n");
-      }
-    } else {
-      fprintf(stderr, "waitpid() failed\n");
+    if (!CreateProcess(
+            NULL,
+            cmd_line,
+            NULL,
+            NULL,
+            FALSE,
+            0,
+            NULL,
+            NULL,
+            &si,
+            &pi)) {
+        printf("CreateProcess failed (%d)\n", GetLastError());
+        return -1;
     }
-  } else {
-    fprintf(stderr, "failed to fork()\n");
-  }
 
-  return return_status;
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    DWORD exit_code;
+    GetExitCodeProcess(pi.hProcess, &exit_code);
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    return exit_code;
 }
-
-/*
-int main(int argc, char **argv)
-{
-  if (argc != 2)
-  {
-    fprintf(stderr, "usage: %s command\n", argv[0]);
-    return 1;
-  }
-
-  int retval = system_return(argv[1]);
-  printf("command `%s' returned %d\n", argv[1], retval);
-
-  return 0;
-}
-*/
-
