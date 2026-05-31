@@ -66,6 +66,9 @@
 
 #define STR(x) std::string(x)
 
+#define APPEND(ARR, ITEM) \
+  ARR[ARR ## _len++] = ITEM
+
 bool begins(const char *p, const char *str);
 std::string win_path(char *ch);
 void print_help(char *self);
@@ -139,17 +142,18 @@ void print_help(char *self)
 int main(int argc, char **argv)
 {
   std::string str, cmd, lnk;
-  bool is_unsupported = false;
 
   bool verbose = false;
   bool print_only = false;
   bool have_outname = false;
-  bool print_search_dirs = false;
   bool do_link = true;
   bool dll = false;
   bool link_static = false;
   bool unix_style_static_libs = true;
 
+  // TODO Try to not allocate memory
+  char **unsupported_args = (char**) malloc(argc * sizeof(char*));
+  int unsupported_args_len = 0;
 
   /* parse arguments */
 
@@ -408,13 +412,13 @@ int main(int argc, char **argv)
         /*  -mdll  -msse -msse2  -mavx -mavx2  */
         else if (arg[1] == 'm' && len > 2)
         {
-          if      (str == "-m32")   { is_unsupported = true;     }
-          else if (str == "-m64")   { is_unsupported = true;     }
-          else if (str == "-mdll")  { cmd += " /LD"; dll = true; }
-          else if (str == "-msse")  { cmd += " /arch:SSE";       }
-          else if (str == "-msse2") { cmd += " /arch:SSE2";      }
-          else if (str == "-mavx")  { cmd += " /arch:AVX";       }
-          else if (str == "-mavx2") { cmd += " /arch:AVX2";      }
+          if      (str == "-m32")   { APPEND(unsupported_args,arg); }
+          else if (str == "-m64")   { APPEND(unsupported_args,arg); }
+          else if (str == "-mdll")  { cmd += " /LD"; dll = true;    }
+          else if (str == "-msse")  { cmd += " /arch:SSE";          }
+          else if (str == "-msse2") { cmd += " /arch:SSE2";         }
+          else if (str == "-mavx")  { cmd += " /arch:AVX";          }
+          else if (str == "-mavx2") { cmd += " /arch:AVX2";         }
         }
 
         /*  -frtti -fthreadsafe-statics -fno-inline -fomit-frame-pointer
@@ -464,7 +468,7 @@ int main(int argc, char **argv)
           if      (str == "-nostdinc" ||
                    str == "-nostdinc++")    { cmd += " /X"; }
 
-          else if (str == "-nostdlib")      { is_unsupported = true; }
+          else if (str == "-nostdlib")      { APPEND(unsupported_args,arg); }
           else if (str == "-nodefaultlibs") { lnk += " /nodefaultlib"; }
         }
 
@@ -496,12 +500,6 @@ int main(int argc, char **argv)
         {
           cmd += " /Zc:trigraphs";
         }
-
-        /*  -print-search-dirs  */
-        else if (str == "-print-search-dirs")
-        {
-          print_search_dirs = true;
-        }
       }
     }
     else
@@ -510,9 +508,8 @@ int main(int argc, char **argv)
     }
   }
 
-  if (is_unsupported == true)
-  {
-    std::cerr << "warning: ignoring `-m32' when using a custom cl.exe" << std::endl;
+  for (int i = 0; i < unsupported_args_len; i++) {
+    fprintf(stderr, "warning: ignoring `%s' when using a custom cl.exe\n", unsupported_args[i]);
   }
 
 
@@ -539,7 +536,7 @@ int main(int argc, char **argv)
 
   if (verbose)
   {
-    std::cout << cmd << std::endl;
+    printf("cl.exe %s\n", cmd.c_str());
   }
   if (print_only)
   {

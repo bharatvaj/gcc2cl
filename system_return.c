@@ -28,9 +28,10 @@
 int system_return(const char* cmd, const char* source_file) {
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
-    char cmd_line[512];
 
-    snprintf(cmd_line, sizeof(cmd_line), "%s %s", cmd, source_file);
+    size_t cmd_line_len = snprintf(NULL, 0, "%s %s", cmd, source_file);
+    char *cmd_line = malloc(cmd_line_len + 1);
+    snprintf(cmd_line, cmd_line_len + 1, "%s %s", cmd, source_file);
 
     ZeroMemory(&si, sizeof(si));
     si.cb = sizeof(si);
@@ -47,7 +48,10 @@ int system_return(const char* cmd, const char* source_file) {
             NULL,
             &si,
             &pi)) {
-        printf("CreateProcess failed (%d)\n", GetLastError());
+        fprintf(stderr,
+                "'%s' is not recognized as an internal or external command,\n"
+                "operable program or batch file.\n",
+                cmd);
         return -1;
     }
 
