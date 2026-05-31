@@ -1,6 +1,6 @@
 SHELL := cmd
 BIN  = gcc2cl.exe
-OBJS = main.obj system_return.obj
+OBJS = gcc2cl.obj system_return.obj
 
 CC = cl
 CXX = cl
